@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prueba de pistas — Asfalto Regio</title>
+  <script type="importmap">
+  { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  } }
+  </script>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0d0f14; color: #eef; font: 14px/1.35 'Segoe UI', sans-serif; }
+    #panel { position: fixed; left: 10px; top: 10px; width: 270px; background: rgba(10,12,18,.86); border: 1px solid #2a2f3a; border-radius: 8px; padding: 10px; z-index: 5; }
+    #panel h1 { font-size: 15px; margin: 0 0 8px; color: #ff7a3a; }
+    #panel label { display: grid; grid-template-columns: 70px 1fr; align-items: center; gap: 6px; margin: 4px 0; }
+    #panel select, #panel button { font: inherit; background: #1a1f2a; color: #eef; border: 1px solid #39404e; border-radius: 5px; padding: 3px 6px; }
+    #panel button { cursor: pointer; margin: 3px 2px 0 0; }
+    #panel button.on { background: #ff5a1f; border-color: #ff5a1f; }
+    #stats, #q { font: 12px/1.4 Consolas, monospace; white-space: pre; margin-top: 8px; color: #bfe; }
+    #q { color: #fec; }
+    #mini { position: fixed; right: 10px; top: 10px; width: 280px; height: 280px; background: rgba(10,12,18,.8); border: 1px solid #2a2f3a; border-radius: 8px; z-index: 5; }
+    #cross { position: fixed; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; border: 2px solid #ff5a1f; border-radius: 50%; pointer-events: none; z-index: 4; }
+    #help { position: fixed; left: 10px; bottom: 10px; font-size: 12px; opacity: .7; z-index: 5; }
+  </style>
+</head>
+<body>
+  <div id="panel">
+    <h1>Pistas · Asfalto Regio</h1>
+    <label>Pista <select id="pista"></select></label>
+    <label>Hora <select id="hora"><option value="day">Día</option><option value="sunset">Atardecer</option><option value="night">Noche</option></select></label>
+    <label>Clima <select id="clima"><option value="clear">Despejado</option><option value="rain">Lluvia</option><option value="fog">Niebla</option><option value="snow">Nieve</option></select></label>
+    <label>Calidad <select id="calidad"><option value="lowpoly">Lowpoly</option><option value="semi">Semi</option></select></label>
+    <div>
+      <button id="build">Construir</button><button id="ride">Recorrer</button><button id="top">Vista aérea</button>
+      <button id="grid">Parrilla</button><button id="bench">Prueba query</button><button id="lights">Semáforo</button>
+    </div>
+    <div id="stats"></div>
+    <div id="q"></div>
+  </div>
+  <canvas id="mini" width="560" height="560"></canvas>
+  <div id="cross"></div>
+  <div id="help">Ratón: girar/acercar · WASD: mover · Q/E: bajar/subir · el círculo naranja consulta track.query()</div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TRACKS, TRACK_BY_ID, trackOutline } from '../js/data/tracks.js';
+import { buildTrack } from '../js/game/track.js';
+import { setupEnvironment } from '../js/game/environment.js';
+
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+for (const t of TRACKS) $('pista').add(new Option(`${t.name} (${t.theme})`, t.id));
+$('pista').value = params.get('pista') || 'monterrey';
+$('hora').value = params.get('hora') || TRACK_BY_ID[$('pista').value].defaultTime || 'day';
+$('clima').value = params.get('clima') || 'clear';
+$('calidad').value = params.get('calidad') || 'lowpoly';
+$('pista').onchange = () => { $('hora').value = TRACK_BY_ID[$('pista').value].defaultTime || 'day'; build(); };
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.3, 3000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.maxPolarAngle = Math.PI * 0.495;
+addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
+
+let track = null, env = null, surf = null, ride = false, rideD = 0, gridMarks = null, lightsStep = 0;
+const keys = {};
+addEventListener('keydown', e => keys[e.code] = true);
+addEventListener('keyup', e => keys[e.code] = false);
+const marker = new THREE.Mesh(new THREE.TorusGeometry(1.2, 0.12, 6, 24).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff5a1f, depthTest: false }));
+marker.renderOrder = 10;
+
+async function build() {
+  const def = TRACK_BY_ID[$('pista').value];
+  const q = $('calidad').value;
+  renderer.shadowMap.enabled = q === 'semi';
+  if (track) { track.dispose(); track = null; }
+  if (env) { env.dispose(); env = null; }
+  if (gridMarks) { scene.remove(gridMarks); gridMarks = null; }
+  $('stats').textContent = 'Construyendo…';
+  const t0 = performance.now();
+  track = await buildTrack(def, { quality: q, timeOfDay: $('hora').value, weather: $('clima').value });
+  const t1 = performance.now();
+  scene.add(track.group);
+  env = setupEnvironment(scene, renderer, { theme: def.theme, timeOfDay: $('hora').value, weather: $('clima').value, quality: q });
+  scene.add(marker);
+  window.T = { THREE, track, env, scene, camera, renderer, controls, def };
+  buildMs = t1 - t0;
+  const s = track.sampleAt(track.closed ? 0 : track.startDistance);
+  controls.target.copy(s.pos);
+  camera.position.copy(s.pos).addScaledVector(s.tangent, -30).add(new THREE.Vector3(0, 14, 0)).addScaledVector(s.right, 12);
+  surf = null;
+  drawMini();
+  if (params.get('vista') === 'top') topView();
+  if (params.get('vista') === 'ride') { ride = true; $('ride').classList.add('on'); rideD = Number(params.get('d') || 0); }
+}
+let buildMs = 0;
+
+function topView() {
+  const b = track.bounds;
+  const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2, size = Math.max(b.maxX - b.minX, b.maxZ - b.minZ);
+  controls.target.set(cx, 0, cz);
+  camera.position.set(cx, size * 0.95 + 80, cz + size * 0.25);
+  ride = false; $('ride').classList.remove('on');
+}
+
+function drawMini() {
+  const cv = $('mini'), g = cv.getContext('2d');
+  g.clearRect(0, 0, cv.width, cv.height);
+  const pts = track.minimap, out = trackOutline(track.def);
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const [x, z] of pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+  const sc = (cv.width - 40) / Math.max(x1 - x0, z1 - z0, 1);
+  const P = (x, z) => [20 + (x - x0) * sc + ((cv.width - 40) - (x1 - x0) * sc) / 2, 20 + (z - z0) * sc + ((cv.height - 40) - (z1 - z0) * sc) / 2];
+  miniMap = P;
+  g.lineWidth = 9; g.strokeStyle = '#3b4252'; g.lineJoin = 'round';
+  g.beginPath(); out.forEach(([x, z], i) => { const [a, b] = P(x, z); i ? g.lineTo(a, b) : g.moveTo(a, b); }); if (track.closed) g.closePath(); g.stroke();
+  g.lineWidth = 2.5; g.strokeStyle = '#e8e8e8';
+  g.beginPath(); pts.forEach(([x, z], i) => { const [a, b] = P(x, z); i ? g.lineTo(a, b) : g.moveTo(a, b); }); if (track.closed) g.closePath(); g.stroke();
+  if (track.pitZone) {
+    g.strokeStyle = '#ffd23f'; g.lineWidth = 4; g.beginPath();
+    let d = track.pitZone.from, end = track.pitZone.to; if (end < d) end += track.length;
+    for (; d <= end; d += 5) { const s = track.sampleAt(d), lat = track.query(s.pos).leftWall; const p = s.pos.clone().addScaledVector(s.right, -Math.min(lat - 9, 25)); const [a, b] = P(p.x, p.z); d === track.pitZone.from ? g.moveTo(a, b) : g.lineTo(a, b); }
+    g.stroke();
+  }
+  const f = track.sampleAt(track.closed ? 0 : track.finishDistance);
+  const [fa, fb] = P(f.pos.x, f.pos.z); g.fillStyle = '#ff3030'; g.fillRect(fa - 5, fb - 5, 10, 10);
+  if (!track.closed) { const s = track.sampleAt(track.startDistance); const [sa, sb] = P(s.pos.x, s.pos.z); g.fillStyle = '#30a0ff'; g.fillRect(sa - 5, sb - 5, 10, 10); }
+  g.fillStyle = '#ccc'; g.font = '20px sans-serif'; g.fillText('N ↑', cv.width - 54, 30);
+  miniBase = g.getImageData(0, 0, cv.width, cv.height);
+}
+let miniMap = null, miniBase = null;
+
+$('build').onclick = build;
+$('ride').onclick = () => { ride = !ride; $('ride').classList.toggle('on', ride); if (ride && surf) rideD = surf.distance; };
+$('top').onclick = topView;
+$('grid').onclick = () => {
+  if (gridMarks) { scene.remove(gridMarks); gridMarks = null; return; }
+  gridMarks = new THREE.Group();
+  for (const s of track.gridSlots(8)) {
+    const car = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.2, 4.4).translate(0, 0.6, 0), new THREE.MeshLambertMaterial({ color: 0x3fa7ff }));
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.4, 0.8).translate(0, 1.0, -2.0), new THREE.MeshLambertMaterial({ color: 0xffd23f }));
+    car.add(nose); car.position.copy(s.pos); car.rotation.y = s.yaw; gridMarks.add(car);
+  }
+  scene.add(gridMarks);
+  const s = track.gridSlots(1)[0];
+  controls.target.copy(s.pos); camera.position.copy(s.pos).add(new THREE.Vector3(18, 16, 18));
+};
+$('lights').onclick = () => {
+  lightsStep = (lightsStep + 1) % 7;
+  if (lightsStep === 6) track.setStartLights(0, true); else track.setStartLights(lightsStep, false);
+};
+$('bench').onclick = () => {
+  const N = 20000, pts = [];
+  for (let i = 0; i < N; i++) {
+    const d = Math.random() * track.length, s = track.sampleAt(d);
+    const lat = (Math.random() * 2 - 1) * (s.halfWidth + 3);
+    pts.push({ p: s.pos.clone().addScaledVector(s.right, lat), d, lat });
+  }
+  let t0 = performance.now(), err = 0, bad = 0;
+  for (const o of pts) { const r = track.query(o.p); let dd = Math.abs(r.distance - o.d); if (track.closed) dd = Math.min(dd, track.length - dd); if (dd > 1.5 || Math.abs(r.lateral - o.lat) > 0.3) bad++; err += dd; }
+  const tGlobal = (performance.now() - t0) / N * 1000;
+  // con pista (hint): trayecto continuo
+  let hint = null, out = null; t0 = performance.now();
+  const M = 120000;
+  for (let i = 0; i < M; i++) { const s = track.sampleAt((i * 0.25) % track.length); out = track.query(s.pos, hint, out); hint = out.index; }
+  const tLocal = (performance.now() - t0) / M * 1000;
+  $('q').textContent = `query global: ${tGlobal.toFixed(2)} µs\nquery con hint: ${tLocal.toFixed(2)} µs\nerror medio dist: ${(err / N).toFixed(3)} m\nmalos (>1.5 m o lat>0.3): ${bad}/${N}`;
+  console.log('bench', { tGlobal, tLocal, bad });
+};
+
+// bucle
+const clock = new THREE.Clock();
+let fpsAcc = 0, fpsN = 0, fps = 0, infoAcc = 0;
+const fwd = new THREE.Vector3(), rgt = new THREE.Vector3();
+function loop() {
+  requestAnimationFrame(loop);
+  const dt = Math.min(clock.getDelta(), 0.1);
+  fpsAcc += dt; fpsN++; if (fpsAcc > 0.5) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
+  if (!track) { renderer.render(scene, camera); return; }
+  if (ride) {
+    rideD += dt * 38;
+    if (!track.closed && rideD > track.length - 2) rideD = 0;
+    const s = track.sampleAt(rideD), a = track.sampleAt(rideD + 14);
+    camera.position.copy(s.pos).addScaledVector(s.normal, 1.5);
+    controls.target.copy(a.pos).addScaledVector(a.normal, 1.0);
+  } else {
+    const sp = (keys.ShiftLeft ? 120 : 35) * dt;
+    camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize(); rgt.set(-fwd.z, 0, fwd.x);
+    const mv = new THREE.Vector3();
+    if (keys.KeyW) mv.add(fwd); if (keys.KeyS) mv.sub(fwd); if (keys.KeyD) mv.add(rgt); if (keys.KeyA) mv.sub(rgt);
+    if (keys.KeyE) mv.y += 1; if (keys.KeyQ) mv.y -= 1;
+    mv.multiplyScalar(sp); camera.position.add(mv); controls.target.add(mv);
+  }
+  controls.update();
+  // consulta en el centro de la pantalla (objetivo de la órbita) o en la cámara al recorrer
+  const qp = ride ? camera.position : controls.target;
+  surf = track.query(qp, surf ? surf.index : null, surf || undefined);
+  if (!ride) { const dy = surf.height - controls.target.y; controls.target.y += dy; camera.position.y += dy; }
+  marker.position.set(qp.x, surf.height + 0.15, qp.z);
+  marker.visible = !ride;
+  track.update(dt, camera);
+  env.update(dt, camera);
+  renderer.render(scene, camera);
+  infoAcc += dt;
+  if (infoAcc > 0.2) {
+    infoAcc = 0;
+    const inf = renderer.info.render;
+    $('stats').textContent = `FPS ${fps.toFixed(0)}  · llamadas ${inf.calls}\ntriángulos ${(inf.triangles / 1000).toFixed(1)} k\nconstrucción ${buildMs.toFixed(0)} ms\nlargo ${track.length.toFixed(0)} m · ${track.closed ? 'cerrada' : 'abierta'}\nmeta ${track.finishDistance.toFixed(0)} m${track.pitZone ? `\npits ${track.pitZone.from.toFixed(0)}→${track.pitZone.to.toFixed(0)} m` : ''}\nagarre clima ${env.gripFactor} · noche ${env.night}`;
+    if (!$('q').textContent.startsWith('query')) $('q').textContent = `distance ${surf.distance.toFixed(1)}  index ${surf.index}\nlateral ${surf.lateral.toFixed(2)}  halfWidth ${surf.halfWidth.toFixed(1)}\nmuros izq ${surf.leftWall.toFixed(1)} der ${surf.rightWall.toFixed(1)}\nsurface ${surf.surface}  grip ${surf.grip} drag ${surf.drag}\ninPit ${surf.inPit}  offTrack ${surf.offTrack}\nheight ${surf.height.toFixed(2)}  normal ${surf.normal.toArray().map(v => v.toFixed(2)).join(',')}`;
+    if (miniMap && miniBase) {
+      const g = $('mini').getContext('2d'); g.putImageData(miniBase, 0, 0);
+      const [a, b] = miniMap(camera.position.x, camera.position.z); g.fillStyle = '#ff5a1f'; g.beginPath(); g.arc(a, b, 7, 0, Math.PI * 2); g.fill();
+    }
+  }
+}
+build().then(loop);
+</script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Prueba de red — Asfalto Regio</title>
+<script type="importmap">
+{ "imports": { "@supabase/supabase-js": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/+esm" } }
+</script>
+<style>
+  body { font: 15px/1.4 system-ui, sans-serif; background: #111; color: #eee; padding: 16px; }
+  pre { background: #1b1b1b; padding: 10px; max-height: 50vh; overflow: auto; }
+  b { color: #ff5a1f; }
+</style>
+</head>
+<body>
+<h2>Prueba de red</h2>
+<p>Abre esta página en dos pestañas con el mismo <code>?sala=XXXXX</code>.</p>
+<div id="info"></div>
+<pre id="log"></pre>
+<script type="module">
+import { Room, newCode, cleanCode } from '../js/net/net.js';
+const q = new URLSearchParams(location.search);
+const code = cleanCode(q.get('sala')) || newCode();
+const id = 'p' + Math.random().toString(36).slice(2, 8);
+const log = (...a) => { const el = document.getElementById('log'); el.textContent = a.join(' ') + '\n' + el.textContent.slice(0, 4000); };
+const stats = { p2p: 0, relay: 0, rtt: [] };
+window.net = { stats };
+const room = new Room(code, { id, name: 'Prueba ' + id }, { carId: 'x' }, {
+  onMembers: list => { log('miembros:', list.map(m => m.id + (m.id === list[0].id ? '(anfitrión)' : '')).join(', ')); },
+  onMessage: (ev, p, from) => log('msg', ev, from, JSON.stringify(p).slice(0, 80)),
+  onFast: (d, from, via) => {
+    stats[via]++;
+    if (d[0] === 'ping' && d[1] !== id) room.sendFast(['pong', d[1], d[2], id]);
+    if (d[0] === 'pong' && d[1] === id) stats.rtt.push(performance.now() - d[2]);
+  },
+  onPeers: st => log('pares:', JSON.stringify(st)),
+});
+await room.connect();
+log('conectado a', code, 'como', id);
+document.getElementById('info').innerHTML = `Sala <b>${code}</b> · yo <b>${id}</b>`;
+setTimeout(() => room.syncClock(), 1500);
+setInterval(() => room.sendFast(['ping', id, performance.now()]), 200);
+setInterval(() => {
+  const r = stats.rtt.slice(-20);
+  const avg = r.length ? (r.reduce((a, b) => a + b, 0) / r.length).toFixed(0) : '-';
+  document.getElementById('info').innerHTML = `Sala <b>${code}</b> · yo <b>${id}</b> · anfitrión ${room.isHost ? 'sí' : 'no'} · offset reloj ${room.clockOffset.toFixed(0)} ms (rtt ${room.bestRtt}) · recibidos p2p ${stats.p2p} / respaldo ${stats.relay} · RTT p2p ${avg} ms · pares ${JSON.stringify(room.peerStatus())}`;
+}, 500);
+</script>
+</body>
+</html>

@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sala de autos · Asfalto Regio</title>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+<style>
+  :root { --bg:#0d0f14; --panel:#151922; --fg:#e9edf3; --mut:#8b95a5; --acc:#ff5a1f; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:13px "Segoe UI",Arial,sans-serif; overflow:hidden; }
+  #panel { position:fixed; left:0; top:0; bottom:0; width:330px; overflow:auto; background:var(--panel); padding:10px 12px 40px; border-right:1px solid #252b36; }
+  #view { position:fixed; left:330px; right:0; top:0; bottom:0; }
+  h1 { font-size:17px; margin:2px 0 8px; letter-spacing:.04em; } h1 b { color:var(--acc); }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--mut); margin:14px 0 6px; border-top:1px solid #252b36; padding-top:10px; }
+  label { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:4px 0; }
+  label > span { color:#c7cfdb; white-space:nowrap; }
+  select, input[type=text], input[type=number] { background:#0f1218; color:var(--fg); border:1px solid #2c3442; border-radius:4px; padding:3px 5px; font:inherit; max-width:190px; width:190px; }
+  input[type=range] { width:150px; }
+  input[type=color] { width:34px; height:22px; border:0; padding:0; background:none; }
+  .row { display:flex; gap:6px; flex-wrap:wrap; margin:6px 0; }
+  button { background:#232a36; color:var(--fg); border:1px solid #333d4d; border-radius:4px; padding:5px 9px; font:inherit; cursor:pointer; }
+  button.on, button:hover { border-color:var(--acc); }
+  #carList { width:100%; max-width:none; height:190px; }
+  #info { position:fixed; right:10px; top:10px; background:rgba(13,15,20,.82); padding:8px 10px; border-radius:6px; max-width:330px; line-height:1.45; pointer-events:none; }
+  #info b { color:var(--acc); }
+  .flag { display:inline-block; width:22px; height:14px; vertical-align:-2px; margin-right:6px; border:1px solid #0006; }
+  .bars div { display:flex; align-items:center; gap:6px; } .bars i { display:block; height:6px; background:var(--acc); border-radius:3px; }
+</style>
+</head>
+<body>
+<div id="panel">
+  <h1>ASFALTO <b>REGIO</b> · autos</h1>
+  <select id="carList" size="10"></select>
+  <div class="row"><button id="prev">◀ Anterior</button><button id="next">Siguiente ▶</button><button id="gridBtn">Cuadrícula</button></div>
+  <div class="row"><button data-cam="ext" class="on">Exterior</button><button data-cam="cabina">Cabina</button><button data-cam="cofre">Cofre</button></div>
+  <label><span>Calidad</span><select id="quality"><option value="lowpoly">lowpoly</option><option value="semi">semi</option></select></label>
+  <label><span>Girar</span><input type="checkbox" id="spin" checked></label>
+  <label><span>Interior</span><input type="checkbox" id="interior"></label>
+  <label><span>Noche</span><input type="checkbox" id="night"></label>
+  <label><span>Luces</span><input type="checkbox" id="lights"></label>
+  <label><span>Luz real (SpotLight)</span><input type="checkbox" id="castLight"></label>
+  <label><span>Fantasma</span><input type="range" id="opacity" min="0.1" max="1" step="0.05" value="1"></label>
+  <label><span>Daño</span><input type="range" id="damage" min="0" max="1" step="0.05" value="0"></label>
+  <label><span>Etiqueta</span><input type="checkbox" id="tag"></label>
+
+  <h2>Simulación</h2>
+  <label><span>Velocidad (km/h)</span><input type="range" id="speed" min="-30" max="300" step="1" value="0"></label>
+  <label><span>Dirección</span><input type="range" id="steer" min="-0.6" max="0.6" step="0.01" value="0"></label>
+  <label><span>Freno</span><input type="checkbox" id="brake"></label>
+  <label><span>Nitro</span><input type="checkbox" id="nitro"></label>
+  <label><span>Patinar llantas</span><input type="checkbox" id="wspin"></label>
+  <label><span>Superficie</span><select id="surface"><option>asfalto</option><option>tierra</option><option>nieve</option><option>arena</option></select></label>
+  <div class="row"><button id="driftBtn">Derrapar en círculo</button><button id="sparkBtn">Chispas</button><button id="clearFx">Limpiar</button></div>
+
+  <h2>Personalización</h2>
+  <div id="custom"></div>
+  <div class="row"><button id="resetCustom">De fábrica</button><button id="randomCustom">Al azar</button></div>
+</div>
+<div id="view"></div>
+<div id="info"></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CARS, CAR_BY_ID, COUNTRIES, carStats, carPerf, TIER_NAMES } from '../js/data/cars.js';
+import { CUSTOM_OPTIONS, CUSTOM_LABELS, defaultCustom } from '../js/data/parts.js';
+import { buildCarModel, setCarEnvironmentLevel } from '../js/game/carmodel.js';
+import { Effects } from '../js/game/effects.js';
+
+const $ = id => document.getElementById(id);
+const view = $('view');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+view.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 900);
+camera.position.set(5.5, 2.4, 6.5);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.6, 0); controls.enableDamping = true;
+const hemi = new THREE.HemisphereLight('#cfe3ff', '#4a4636', 1.4);
+const sun = new THREE.DirectionalLight('#fff4e0', 2.2); sun.position.set(6, 10, 4);
+sun.shadow.mapSize.set(1024, 1024); Object.assign(sun.shadow.camera, { left: -8, right: 8, top: 8, bottom: -8 });
+scene.add(hemi, sun, sun.target);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshLambertMaterial({ color: '#3a3d42' }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const grid = new THREE.GridHelper(400, 200, '#4c5260', '#44484f'); grid.position.y = 0.002; scene.add(grid);
+const effects = new Effects(scene, { quality: 'lowpoly' });
+
+let carId = 'nissan-tsuru', custom = defaultCustom(CAR_BY_ID[carId]);
+let model = null, gridModels = [], camMode = 'ext', drift = false, driftAng = 0;
+const holder = new THREE.Group(); scene.add(holder);
+window.__autos = { get model() { return model; }, gridModels, CARS, buildCarModel, camera, controls, effects };
+
+// lista de autos agrupada por país
+const list = $('carList');
+for (const code of Object.keys(COUNTRIES)) {
+  const og = document.createElement('optgroup'); og.label = COUNTRIES[code].name;
+  for (const c of CARS.filter(c => c.country === code)) {
+    const o = document.createElement('option'); o.value = c.id;
+    o.textContent = `${'T' + c.tier} · ${c.name}${c.hidden ? ' (oculto)' : ''} · $${c.price.toLocaleString('es-MX')}`;
+    og.appendChild(o);
+  }
+  list.appendChild(og);
+}
+list.value = carId;
+list.onchange = () => selectCar(list.value);
+$('prev').onclick = () => step(-1); $('next').onclick = () => step(1);
+function step(d) { const i = CARS.findIndex(c => c.id === carId); selectCar(CARS[(i + d + CARS.length) % CARS.length].id); }
+function selectCar(id) { carId = id; list.value = id; custom = defaultCustom(CAR_BY_ID[id]); buildCustomUI(); rebuild(); }
+
+// controles de personalización generados desde CUSTOM_OPTIONS
+function buildCustomUI() {
+  const box = $('custom'); box.innerHTML = '';
+  for (const key of Object.keys(CUSTOM_LABELS)) {
+    const opts = CUSTOM_OPTIONS[key];
+    const lab = document.createElement('label');
+    lab.innerHTML = `<span>${CUSTOM_LABELS[key]}</span>`;
+    const wrap = document.createElement('span'); wrap.style.display = 'flex'; wrap.style.gap = '4px';
+    if (Array.isArray(opts)) {
+      const sel = document.createElement('select');
+      if (opts.some(o => typeof o.id === 'string' && o.id.startsWith('#'))) sel.style.width = '150px';
+      for (const o of opts) { const op = document.createElement('option'); op.value = JSON.stringify(o.id); op.textContent = `${o.name} ($${o.price})`; sel.appendChild(op); }
+      const cur = JSON.stringify(custom[key]);
+      if (![...sel.options].some(o => o.value === cur)) { const op = document.createElement('option'); op.value = cur; op.textContent = String(custom[key]); sel.appendChild(op); }
+      sel.value = cur;
+      sel.onchange = () => { custom[key] = JSON.parse(sel.value); rebuild(); buildCustomUI(); };
+      wrap.appendChild(sel);
+      if (opts.some(o => typeof o.id === 'string' && o.id.startsWith('#'))) {
+        const col = document.createElement('input'); col.type = 'color'; col.value = typeof custom[key] === 'string' ? custom[key] : '#000000';
+        col.onchange = () => { custom[key] = col.value; rebuild(); };
+        wrap.appendChild(col);
+      }
+    } else if (key === 'number') {
+      const inp = document.createElement('input'); inp.type = 'number'; inp.min = 0; inp.max = 99; inp.placeholder = 'sin número'; inp.value = custom.number ?? '';
+      inp.onchange = () => { custom.number = inp.value === '' ? null : +inp.value; rebuild(); };
+      wrap.appendChild(inp);
+    } else {
+      const inp = document.createElement('input'); inp.type = 'text'; inp.maxLength = 8; inp.value = custom.plate;
+      inp.onchange = () => { custom.plate = inp.value; rebuild(); };
+      wrap.appendChild(inp);
+    }
+    lab.appendChild(wrap); box.appendChild(lab);
+  }
+}
+$('resetCustom').onclick = () => selectCar(carId);
+$('randomCustom').onclick = () => {
+  const pick = a => a[Math.floor(Math.random() * a.length)].id;
+  for (const k of ['paint', 'finish', 'vinyl', 'vinylColor', 'rims', 'rimColor', 'caliper', 'spoiler', 'bodykit', 'tint', 'underglow', 'smoke', 'lights', 'ride']) custom[k] = pick(CUSTOM_OPTIONS[k]);
+  custom.number = Math.random() < 0.5 ? null : Math.floor(Math.random() * 100);
+  buildCustomUI(); rebuild();
+};
+
+function rebuild() {
+  clearGrid();
+  if (model) { model.dispose(); model = null; }
+  const t0 = performance.now();
+  model = buildCarModel(carId, custom, { quality: $('quality').value, interior: $('interior').checked, ghostable: true });
+  model._buildMs = performance.now() - t0;
+  holder.add(model.group);
+  applyToggles();
+  sun.castShadow = $('quality').value === 'semi'; renderer.shadowMap.enabled = sun.castShadow;
+  showInfo();
+}
+function applyToggles() {
+  const ms = gridModels.length ? gridModels : model ? [model] : [];
+  for (const m of ms) {
+    m.setLights($('lights').checked, { castLight: $('castLight').checked && m === model });
+    m.setOpacity(+$('opacity').value);
+    m.setDamage(+$('damage').value);
+    if (m === model) m.setNameTag($('tag').checked ? 'Piloto 23' : null);
+  }
+  const night = $('night').checked;
+  hemi.intensity = night ? 0.12 : 1.4; sun.intensity = night ? 0.05 : 2.2;
+  scene.background = new THREE.Color(night ? '#05070c' : '#8fb4dc');
+  scene.fog = new THREE.Fog(scene.background, 60, night ? 160 : 320);
+  setCarEnvironmentLevel(night ? 0.3 : 1);
+}
+for (const id of ['lights', 'castLight', 'opacity', 'damage', 'tag', 'night']) $(id).oninput = applyToggles;
+$('quality').onchange = () => { gridModels.length ? buildGrid() : rebuild(); };
+$('interior').onchange = rebuild;
+document.querySelectorAll('[data-cam]').forEach(b => b.onclick = () => {
+  camMode = b.dataset.cam; document.querySelectorAll('[data-cam]').forEach(x => x.classList.toggle('on', x === b));
+  if (camMode !== 'ext' && !$('interior').checked && camMode === 'cabina') { $('interior').checked = true; rebuild(); }
+  if (camMode === 'ext') { camera.position.set(5.5, 2.4, 6.5); controls.target.set(0, 0.6, 0); }
+});
+$('driftBtn').onclick = () => { drift = !drift; $('driftBtn').classList.toggle('on', drift); if (!drift && model) model.group.position.set(0, 0, 0); };
+$('sparkBtn').onclick = () => { if (model) { model.group.updateMatrixWorld(); const p = new THREE.Vector3(); model.group.getWorldPosition(p); p.y += 0.4; p.x += 1; effects.sparks(p, new THREE.Vector3(1, 0.2, 0), 1); } };
+$('clearFx').onclick = () => effects.clear();
+
+function showInfo() {
+  if (!model) { return; }
+  const d = CAR_BY_ID[carId], st = carStats(d), pf = carPerf(d), co = COUNTRIES[d.country];
+  const bar = (n, v) => `<div>${n}<i style="width:${v * 12}px"></i>${v}</div>`;
+  $('info').innerHTML = `<span class="flag" style="background:${co.flag.css}"></span><b>${d.brand}</b> ${d.model} (${d.year})<br>
+    ${co.name} · ${TIER_NAMES[d.tier]} · ${d.class} · $${d.price.toLocaleString('es-MX')}<br>
+    ${pf.hp} hp · ${pf.kg} kg · ${d.spec.drivetrain} · ${d.spec.gears.length} vel. · ${pf.topKmh} km/h · 0-100 ${pf.t100} s<br>
+    <div class="bars">${bar('Vel', st.velocidad)}${bar('Acel', st.aceleracion)}${bar('Manejo', st.manejo)}${bar('Freno', st.frenado)}</div>
+    Triángulos: <b>${model.stats.triangles}</b> ext · ${model.stats.interiorTriangles} int · ~${model.stats.drawCalls} llamadas<br>
+    Construcción: ${model._buildMs.toFixed(1)} ms<br><i style="color:#8b95a5">${d.desc}</i>
+    <div id="rinfo"></div>`;
+}
+
+// cuadrícula con todos los autos
+function clearGrid() { for (const m of gridModels) m.dispose(); gridModels.length = 0; }
+function buildGrid() {
+  if (model) { model.dispose(); model = null; }
+  clearGrid();
+  const cols = 10;
+  const sorted = [...CARS].sort((a, b) => a.tier - b.tier || a.price - b.price);
+  sorted.forEach((c, i) => {
+    const m = buildCarModel(c, null, { quality: $('quality').value });
+    m.group.position.set((i % cols - (cols - 1) / 2) * 5.2, 0, Math.floor(i / cols) * 7 - 14);
+    m.group.rotation.y = -0.6;
+    m.setNameTag(c.brand + ' ' + c.model.split(' (')[0].slice(0, 16));
+    holder.add(m.group); gridModels.push(m);
+  });
+  applyToggles();
+  camera.position.set(0, 26, 38); controls.target.set(0, 0, 4);
+  const tris = gridModels.map(m => m.stats.triangles);
+  $('info').innerHTML = `<b>${gridModels.length}</b> autos · triángulos ext: min ${Math.min(...tris)} · máx ${Math.max(...tris)} · prom ${Math.round(tris.reduce((a, b) => a + b, 0) / tris.length)}<div id="rinfo"></div>`;
+}
+$('gridBtn').onclick = buildGrid;
+
+function resize() { const w = view.clientWidth, h = view.clientHeight; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+
+const state = { speed: 0, steerAngle: 0, rpm: 900, gear: 1, brake: 0, throttle: 0, nitroActive: false, wheelSpin: 0, drifting: false, slipAngle: 0,
+  velocity: new THREE.Vector3(), surface: 'asfalto', onGround: true, wallHit: 0, pitch: 0, roll: 0 };
+const clock = new THREE.Clock();
+let fpsT = 0, fpsN = 0;
+const eyeW = new THREE.Vector3(), tgtW = new THREE.Vector3(), fwd = new THREE.Vector3();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(0.05, clock.getDelta());
+  const kmh = +$('speed').value;
+  state.speed = kmh / 3.6; state.steerAngle = +$('steer').value; state.brake = $('brake').checked ? 1 : 0;
+  state.gear = kmh < 0 ? -1 : 1; state.nitroActive = $('nitro').checked; state.wheelSpin = $('wspin').checked ? 1 : 0;
+  state.rpm = 1000 + Math.abs(kmh) * 25 % 6000; state.surface = $('surface').value;
+  state.drifting = false; state.slipAngle = 0; state.velocity.set(0, 0, 0);
+  if (model && drift) {
+    const r = 9, v = Math.max(8, state.speed || 14);
+    driftAng += v / r * dt;
+    model.group.position.set(Math.cos(driftAng) * r, 0, Math.sin(driftAng) * r);
+    model.group.rotation.y = -driftAng - 0.45;
+    state.velocity.set(-Math.sin(driftAng) * v, 0, Math.cos(driftAng) * v);
+    state.speed = v; state.drifting = true; state.slipAngle = 0.5; state.steerAngle = -0.4;
+  } else if (model && $('spin').checked && camMode === 'ext') model.group.rotation.y += dt * 0.35;
+  if (model) { model.update(dt, state); if (drift || state.wheelSpin) effects.updateCar(model, state, dt, model.custom.smoke); }
+  for (const m of gridModels) m.update(dt, state);
+  effects.update(dt, camera);
+  if (model && camMode !== 'ext') {
+    const o = camMode === 'cabina' ? model.cockpit.eye : model.hood;
+    model.group.updateMatrixWorld(); o.getWorldPosition(eyeW);
+    fwd.set(0, -0.05, -1).transformDirection(model.group.matrixWorld);
+    camera.position.copy(eyeW); tgtW.copy(eyeW).add(fwd); camera.lookAt(tgtW);
+  } else controls.update();
+  renderer.render(scene, camera);
+  fpsN++; fpsT += dt;
+  if (fpsT > 0.5) { const r = $('rinfo'); if (r) r.textContent = `${Math.round(fpsN / fpsT)} fps · ${renderer.info.render.calls} llamadas · ${renderer.info.render.triangles} triángulos en cuadro`; fpsN = 0; fpsT = 0; }
+});
+
+buildCustomUI();
+rebuild();
+</script>
+</body>
+</html>

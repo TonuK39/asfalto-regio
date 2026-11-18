@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Asfalto Regio — prueba de interfaz</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/ui.css">
+  <script type="importmap">
+  { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+      "@supabase/supabase-js": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/+esm"
+  } }
+  </script>
+  <style>
+    /* Fondo que imita la escena 3D del núcleo, para juzgar la transparencia de los paneles. */
+    #game { background:
+      linear-gradient(180deg, rgba(0,0,0,0) 55%, rgba(0,0,0,.35) 100%),
+      linear-gradient(165deg, #4b6c8f 0%, #c58a5a 38%, #6d5a4d 52%, #2e2f33 53%, #3a3b40 70%, #222327 100%); }
+    #game::after { content: ''; position: absolute; left: -10%; right: -10%; top: 62%; height: 3px; background: repeating-linear-gradient(90deg, #fff 0 60px, transparent 60px 120px); transform: perspective(300px) rotateX(60deg); opacity: .6; }
+    #dev { position: fixed; left: 50%; bottom: 6px; transform: translateX(-50%); z-index: 50; display: flex; flex-wrap: wrap; gap: 4px; max-width: 96vw; justify-content: center;
+      padding: 5px; background: rgba(0,0,0,.75); font: 12px/1 system-ui, sans-serif; border: 1px solid #444; }
+    #dev button { font: inherit; padding: 4px 7px; background: #262a33; color: #ddd; border: 1px solid #3a3f4a; cursor: pointer; }
+    #dev button:hover { background: #3a4050; }
+    #dev .st { color: #8f8; padding: 4px 6px; }
+    #dev.hide { display: none; }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+  <div id="ui"></div>
+  <div id="dev"></div>
+  <script type="module">
+    import { save } from '../js/core/save.js';
+    import { MODES, MODE_BY_ID, modeFitsTrack } from '../js/data/modes.js';
+    import { MAX_PLAYERS } from '../js/config.js';
+
+    const tryImport = async p => { try { return await import(p); } catch (e) { console.info('[prueba] sin ' + p + ' → datos simulados'); return null; } };
+    const [carsM, partsM, tracksM, carmodelM, audioM, inputM] = await Promise.all([
+      tryImport('../js/data/cars.js'), tryImport('../js/data/parts.js'), tryImport('../js/data/tracks.js'),
+      tryImport('../js/game/carmodel.js'), tryImport('../js/core/audio.js'), tryImport('../js/core/input.js'),
+    ]);
+    const real = { cars: !!carsM, parts: !!partsM, tracks: !!tracksM, carmodel: !!carmodelM, audio: !!audioM };
+
+    // ---------------- datos simulados ----------------
+    const C = (id, brand, model, year, country, cls, tier, price, color, kw, kg, drive, layout, turbo, extra = {}) => ({
+      id, brand, model, year, country, class: cls, tier, price, color, hidden: !!extra.hidden,
+      body: { type: 'coupe', length: extra.len || 4.5, width: 1.8, height: extra.h || 1.35, wheelbase: 2.6, wheelRadius: 0.33 },
+      spec: { massKg: kg, powerKw: kw, torqueNm: kw * 3, redlineRpm: extra.red || 7000, idleRpm: 900, drivetrain: drive, tireGrip: 1 + tier * 0.08, brakeG: 1 + tier * 0.1, nitroCapacity: 0, nitroBoost: 1.3 },
+      engine: { layout, cylinders: 4, turbo },
+    });
+    const MOCK_CARS = [
+      C('nissan-tsuru', 'Nissan', 'Tsuru', 2017, 'JP', 'compacto', 1, 18000, '#d8d8d8', 77, 1000, 'FWD', 'I4', false, { len: 4.3 }),
+      C('vw-vocho', 'Volkswagen', 'Sedán (Vocho)', 2003, 'DE', 'clasico', 1, 22000, '#3a7bd5', 34, 820, 'RWD', 'F4', false, { len: 4.0, h: 1.5, red: 5000 }),
+      C('vw-golf-gti', 'Volkswagen', 'Golf GTI', 2020, 'DE', 'compacto', 2, 68000, '#c81e1e', 180, 1380, 'FWD', 'I4', true),
+      C('honda-civic-typer', 'Honda', 'Civic Type R', 2018, 'JP', 'compacto', 3, 110000, '#f2f2f2', 228, 1380, 'FWD', 'I4', true, { red: 7500 }),
+      C('nissan-skyline-r34', 'Nissan', 'Skyline GT-R R34', 1999, 'JP', 'jdm', 3, 95000, '#1d3fbf', 206, 1560, 'AWD', 'I6', true, { red: 8000 }),
+      C('toyota-supra', 'Toyota', 'Supra MK4', 1998, 'JP', 'jdm', 3, 120000, '#ff7a00', 239, 1490, 'RWD', 'I6', true),
+      C('mazda-rx7', 'Mazda', 'RX-7 FD', 1997, 'JP', 'jdm', 3, 88000, '#e8e000', 188, 1280, 'RWD', 'R2', true, { red: 8500 }),
+      C('ford-mustang', 'Ford', 'Mustang GT', 2021, 'US', 'muscle', 3, 135000, '#2b2b2b', 343, 1740, 'RWD', 'V8', false),
+      C('dodge-challenger', 'Dodge', 'Challenger Hellcat', 2020, 'US', 'muscle', 4, 210000, '#7a1fa2', 527, 2000, 'RWD', 'V8', true, { red: 6200 }),
+      C('chevy-corvette', 'Chevrolet', 'Corvette C8', 2022, 'US', 'deportivo', 4, 260000, '#e3b505', 369, 1530, 'RWD', 'V8', false),
+      C('porsche-911', 'Porsche', '911 GT3', 2022, 'DE', 'deportivo', 4, 330000, '#9fb7c8', 375, 1430, 'RWD', 'F6', false, { red: 9000 }),
+      C('bmw-m3', 'BMW', 'M3 E46', 2004, 'DE', 'deportivo', 3, 145000, '#1e64c8', 252, 1570, 'RWD', 'I6', false, { red: 8000 }),
+      C('ferrari-f40', 'Ferrari', 'F40', 1990, 'IT', 'super', 5, 980000, '#d40000', 352, 1100, 'RWD', 'V8', true),
+      C('lambo-huracan', 'Lamborghini', 'Huracán', 2019, 'IT', 'super', 5, 720000, '#7ed321', 470, 1420, 'AWD', 'V10', false, { red: 8500 }),
+      C('mclaren-f1', 'McLaren', 'F1', 1995, 'GB', 'hiper', 5, 1500000, '#c0c0c0', 461, 1140, 'RWD', 'V12', false),
+      C('subaru-impreza', 'Subaru', 'Impreza WRX STI', 2006, 'JP', 'rally', 3, 99000, '#1a4ec2', 221, 1470, 'AWD', 'F4', true),
+      C('hyundai-n', 'Hyundai', 'i30 N', 2021, 'KR', 'compacto', 2, 72000, '#4a90d9', 202, 1430, 'FWD', 'I4', true),
+      C('volvo-240', 'Volvo', '240 Turbo', 1985, 'SE', 'clasico', 2, 45000, '#5c2a2a', 114, 1300, 'RWD', 'I4', true),
+      C('ram-trx', 'RAM', '1500 TRX', 2022, 'US', 'pickup', 3, 190000, '#3d3d3d', 523, 2900, 'AWD', 'V8', true),
+      C('renault-alpine', 'Alpine', 'A110', 2019, 'FR', 'deportivo', 3, 160000, '#1b5fa8', 185, 1100, 'RWD', 'I4', true),
+      C('formula-monoplaza', 'Regio', 'Monoplaza F', 2024, 'MX', 'formula', 5, 0, '#ff5a1f', 600, 750, 'RWD', 'V6', true, { hidden: true }),
+      C('patrulla', 'Ford', 'Patrulla', 2020, 'US', 'muscle', 3, 0, '#ffffff', 300, 1800, 'RWD', 'V8', false, { hidden: true }),
+    ];
+    const MOCK_COUNTRIES = { MX: { name: 'México' }, JP: { name: 'Japón' }, DE: { name: 'Alemania' }, US: { name: 'Estados Unidos' }, IT: { name: 'Italia' }, GB: { name: 'Reino Unido' }, KR: { name: 'Corea del Sur' }, SE: { name: 'Suecia' }, FR: { name: 'Francia' } };
+    const L = (...p) => p.map((x, i) => ({ name: x[0], price: x[1] }));
+    const MOCK_UPGRADES = {
+      motor: { name: 'Motor', desc: 'Más potencia y torque', levels: L(['Calle', 4000], ['Deportivo', 9000], ['Carreras', 18000], ['Élite', 36000]) },
+      turbo: { name: 'Turbo', desc: 'Más aire, más caballos', levels: L(['Etapa 1', 6000], ['Etapa 2', 14000], ['Etapa 3', 28000]) },
+      transmision: { name: 'Transmisión', desc: 'Cambios más rápidos', levels: L(['Deportiva', 5000], ['Carreras', 11000], ['Secuencial', 22000]) },
+      llantas: { name: 'Llantas', desc: 'Más agarre en curva', levels: L(['Deportivas', 3000], ['Semi-slick', 7000], ['Slick', 15000], ['Competencia', 30000]) },
+      suspension: { name: 'Suspensión', desc: 'Menos balanceo', levels: L(['Resortes', 3500], ['Coilovers', 8000], ['Carreras', 16000]) },
+      frenos: { name: 'Frenos', desc: 'Frenas más tarde', levels: L(['Balatas', 2500], ['Discos ranurados', 6000], ['Cerámicos', 14000]) },
+      peso: { name: 'Reducción de peso', desc: 'Menos kilos, más rápido', levels: L(['Interior', 4000], ['Fibra de carbono', 12000], ['Jaula ligera', 25000]) },
+      nitro: { name: 'Nitro', desc: 'Óxido nitroso para las rectas', levels: L(['Botella chica', 5000], ['Doble', 12000], ['Competencia', 24000]) },
+    };
+    const mockUpgradePrice = (car, key, lvl) => { const l = MOCK_UPGRADES[key].levels[lvl - 1]; return l ? Math.round(l.price * (0.6 + (car.tier || 1) * 0.2) / 100) * 100 : 0; };
+    const cols = (arr, price) => arr.map(([id, name]) => ({ id, name, price }));
+    const MOCK_CUSTOM = {
+      paint: cols([['#c81e1e', 'Rojo Monterrey'], ['#1d3fbf', 'Azul Bayside'], ['#f2f2f2', 'Blanco Perla'], ['#151515', 'Negro Noche'], ['#ff7a00', 'Naranja Cerro'], ['#e8e000', 'Amarillo Sol'], ['#2e9d4a', 'Verde Huasteca'], ['#7a1fa2', 'Morado Neón'], ['#9fb7c8', 'Plata Acero'], ['#00b4d8', 'Turquesa Costa']], 1500),
+      finish: [{ id: 'brillante', name: 'Brillante', price: 0 }, { id: 'mate', name: 'Mate', price: 2500 }, { id: 'metalico', name: 'Metálico', price: 3000 }, { id: 'perla', name: 'Perla', price: 4500 }, { id: 'cromo', name: 'Cromo', price: 15000 }],
+      vinyl: [{ id: 'ninguno', name: 'Ninguno', price: 0 }, { id: 'franjas', name: 'Franjas racing', price: 2000 }, { id: 'flamas', name: 'Flamas', price: 3500 }, { id: 'tribal', name: 'Tribal', price: 3000 }, { id: 'cuadros', name: 'Cuadros', price: 2500 }, { id: 'numero', name: 'Número lateral', price: 1500 }],
+      vinylColor: cols([['#ffffff', 'Blanco'], ['#111111', 'Negro'], ['#ffd23f', 'Amarillo'], ['#ff5a1f', 'Naranja'], ['#3d8bff', 'Azul']], 800),
+      rims: [{ id: 'serie', name: 'De serie', price: 0 }, { id: 'cinco', name: 'Cinco rayos', price: 4000 }, { id: 'malla', name: 'Malla', price: 6000 }, { id: 'turbina', name: 'Turbina', price: 7000 }, { id: 'competencia', name: 'Competencia', price: 9000 }, { id: 'clasicos', name: 'Clásicos', price: 5000 }],
+      rimColor: cols([['#c0c4cc', 'Plata'], ['#151515', 'Negro'], ['#d4af37', 'Oro'], ['#ff5a1f', 'Naranja'], ['#ffffff', 'Blanco']], 1200),
+      caliper: cols([['#cc0000', 'Rojo'], ['#ffd23f', 'Amarillo'], ['#3d8bff', 'Azul'], ['#151515', 'Negro']], 900),
+      spoiler: [{ id: 'ninguno', name: 'Ninguno', price: 0 }, { id: 'lip', name: 'Labio', price: 2000 }, { id: 'ducktail', name: 'Ducktail', price: 3500 }, { id: 'gt', name: 'Ala GT', price: 7000 }],
+      bodykit: [{ id: 0, name: 'De serie', price: 0 }, { id: 1, name: 'Calle', price: 9000 }, { id: 2, name: 'Widebody', price: 22000 }],
+      ride: [{ id: 0, name: 'Alta', price: 1000 }, { id: 1, name: 'De serie', price: 0 }, { id: 2, name: 'Ras de piso', price: 3000 }],
+      tint: [{ id: 0, name: 'Sin polarizado', price: 0 }, { id: 0.4, name: 'Medio', price: 1200 }, { id: 0.8, name: 'Limusina', price: 2000 }],
+      underglow: [{ id: null, name: 'Ninguno', price: 0 }, { id: '#00e5ff', name: 'Cian', price: 5000 }, { id: '#ff2bd6', name: 'Rosa', price: 5000 }, { id: '#7cff00', name: 'Verde', price: 5000 }],
+      smoke: cols([['#ffffff', 'Blanco'], ['#ff3b3b', 'Rojo'], ['#3d8bff', 'Azul'], ['#ffd23f', 'Amarillo'], ['#b05cff', 'Morado']], 1500),
+      lights: cols([['#ffffff', 'Blanco'], ['#cfe6ff', 'Xenón'], ['#ffd23f', 'Amarillo']], 800),
+    };
+    const mockDefaultCustom = def => ({ paint: def.color, finish: 'brillante', vinyl: 'ninguno', vinylColor: '#ffffff', number: null, rims: 'serie', rimColor: '#c0c4cc', caliper: '#cc0000', spoiler: 'ninguno', bodykit: 0, tint: 0, underglow: null, smoke: '#ffffff', lights: '#ffffff', plate: 'NL-' + (100 + (def.id.length * 37) % 900), ride: 1 });
+    const mockComputeSpec = (def, u = {}) => {
+      const s = { ...def.spec };
+      s.powerKw = s.powerKw * (1 + 0.07 * (u.motor || 0) + 0.06 * (u.turbo || 0));
+      s.massKg = s.massKg * (1 - 0.035 * (u.peso || 0));
+      s.tireGrip = s.tireGrip + 0.05 * (u.llantas || 0);
+      s.brakeG = s.brakeG + 0.08 * (u.frenos || 0);
+      s.nitroCapacity = (u.nitro || 0) * 1.6;
+      return s;
+    };
+    const cl = v => Math.max(0, Math.min(10, v));
+    const mockCarStats = (def, u = {}) => {
+      const s = mockComputeSpec(def, u);
+      return { velocidad: cl(2 + s.powerKw / 70 + (u.transmision || 0) * 0.3), aceleracion: cl(s.powerKw / s.massKg * 30 + (u.transmision || 0) * 0.4),
+        manejo: cl(s.tireGrip * 5 + (u.suspension || 0) * 0.5), frenado: cl(s.brakeG * 4.2) };
+    };
+    const ring = (n, f) => Array.from({ length: n }, (_, i) => f(i / n * Math.PI * 2));
+    const MOCK_TRACKS = [
+      { id: 'monterrey', name: 'Autódromo Monterrey', theme: 'autodromo', real: true, place: 'Apodaca, N.L.', kind: 'circuit', surface: 'asfalto', modes: [], defaultLaps: 3, defaultTime: 'day', description: 'El circuito real de Nuevo León: rectas largas y horquillas.', _pts: ring(150, a => [Math.cos(a) * 400 + Math.cos(a * 3) * 60, Math.sin(a) * 220 + Math.sin(a * 2) * 50]) },
+      { id: 'distrito-neon', name: 'Distrito Neón', theme: 'neon', real: false, place: 'Barrio Antiguo (ficticio)', kind: 'street', surface: 'asfalto', modes: [], defaultLaps: 3, defaultTime: 'night', description: 'Calles angostas bajo letreros de neón.', _pts: ring(150, a => [Math.sign(Math.cos(a)) * Math.pow(Math.abs(Math.cos(a)), .4) * 260, Math.sign(Math.sin(a)) * Math.pow(Math.abs(Math.sin(a)), .4) * 180]) },
+      { id: 'paso-del-diablo', name: 'Paso del Diablo', theme: 'montana', real: false, place: 'Sierra de Santiago (ficticio)', kind: 'sprint', surface: 'asfalto', modes: [], defaultLaps: 1, defaultTime: 'sunset', description: 'Bajada de montaña con curvas cerradas.', _pts: Array.from({ length: 150 }, (_, i) => [Math.sin(i / 9) * 120 + i * 4, i * 8]) },
+      { id: 'aerodromo-arrancones', name: 'Aeródromo Arrancones', theme: 'aerodromo', real: false, place: 'Sabinas Hidalgo (ficticio)', kind: 'drag', surface: 'asfalto', modes: [], defaultLaps: 1, defaultTime: 'day', description: 'Cuarto de milla en línea recta.', _pts: [[0, 0], [0, -402]] },
+      { id: 'plataforma-gymkhana', name: 'Plataforma Gymkhana', theme: 'aerodromo', real: false, place: 'Hangar 3 (ficticio)', kind: 'arena', surface: 'asfalto', modes: [], defaultLaps: 0, defaultTime: 'day', description: 'Explanada con conos, postes y puertas.', _pts: ring(60, a => [Math.cos(a) * 100, Math.sin(a) * 100]) },
+      { id: 'ovalo-tormenta', name: 'Óvalo Tormenta', theme: 'ovalo', real: false, place: 'Escobedo (ficticio)', kind: 'oval', surface: 'asfalto', modes: [], defaultLaps: 8, defaultTime: 'night', description: 'Peraltes altos y rebufo.', _pts: ring(150, a => [Math.cos(a) * 380, Math.sin(a) * 150]) },
+    ];
+    const mockOutline = def => def._pts || null;
+
+    const audioMock = { log: [], sfx(n) { this.log.push(n); if (this.log.length > 40) this.log.shift(); }, unlock() {} };
+    const deps = {
+      save,
+      CARS: carsM ? carsM.CARS : MOCK_CARS,
+      CAR_BY_ID: carsM ? carsM.CAR_BY_ID : Object.fromEntries(MOCK_CARS.map(c => [c.id, c])),
+      COUNTRIES: carsM ? carsM.COUNTRIES : MOCK_COUNTRIES,
+      computeSpec: carsM ? carsM.computeSpec : mockComputeSpec,
+      carStats: carsM ? carsM.carStats : mockCarStats,
+      UPGRADES: partsM ? partsM.UPGRADES : MOCK_UPGRADES,
+      CUSTOM_OPTIONS: partsM ? partsM.CUSTOM_OPTIONS : MOCK_CUSTOM,
+      defaultCustom: partsM ? partsM.defaultCustom : mockDefaultCustom,
+      upgradePrice: partsM ? partsM.upgradePrice : mockUpgradePrice,
+      TRACKS: tracksM ? tracksM.TRACKS : MOCK_TRACKS,
+      TRACK_BY_ID: tracksM ? tracksM.TRACK_BY_ID : Object.fromEntries(MOCK_TRACKS.map(t => [t.id, t])),
+      trackOutline: tracksM ? tracksM.trackOutline : mockOutline,
+      MODES, MODE_BY_ID, modeFitsTrack,
+      buildCarModel: carmodelM ? carmodelM.buildCarModel : null,
+      audio: audioM ? audioM.audio : audioMock,
+      input: inputM ? new inputM.Input(window) : null,
+      quality: save.data.settings.graphics,
+    };
+    if (deps.input) deps.input.enabled = false;
+
+    const { UI } = await import('../js/ui/ui.js');
+    const ui = new UI(document.getElementById('ui'), deps);
+    window.ui = ui; window.deps = deps; window.save = save;
+    if (save.data.money < 200000) save.addMoney(400000);
+
+    // ---------------- flujos de prueba ----------------
+    const T = window.T = {};
+    T.main = () => ui.showMain({
+      onOnline: T.lobby, onPractice: T.practice, onGarage: T.garage, onDealer: T.dealer,
+      onRecords: T.records, onSettings: T.settings, onSaveCode: T.code,
+    });
+    T.dealer = () => ui.showDealer({ onBack: T.main });
+    T.garage = () => ui.showGarage({ onBack: T.main });
+    T.settings = () => ui.showSettings({ onBack: T.main, onChange: s => console.log('[prueba] ajustes', s) });
+    T.code = () => ui.showSaveCode({ onBack: T.main });
+    T.records = () => ui.showRecords({ onBack: T.main, fetch: (t, m) => new Promise(r => setTimeout(() => r(Array.from({ length: 12 }, (_, i) => ({ name: ['Toño Turbo', 'La Güera', 'Memo', 'Paty', 'Rafa', 'Chuy'][i % 6] + (i > 5 ? ' ' + i : ''), car: deps.CARS[(i * 3) % deps.CARS.length].id, ms: 62000 + i * 731 + (t.length * 97) % 900, at: Date.now() - i * 86400000 }))), 350)) });
+    T.lobby = () => ui.showLobby({
+      listRooms: () => new Promise(r => setTimeout(() => r([
+        { code: 'K7P2Q', name: 'Los del Barrio', host: 'Toño Turbo', players: 5, max: 8, track: 'Autódromo Monterrey', mode: 'Carrera de circuito', status: 'En sala' },
+        { code: 'ZX9WD', name: 'Drift nocturno', host: 'La Güera', players: 3, max: 8, track: 'Distrito Neón', mode: 'Drift', status: 'En carrera' },
+        { code: 'HH4R8', name: 'Sala llena', host: 'Memo', players: 8, max: 8, track: 'Óvalo Tormenta', mode: 'Óvalo', status: 'En sala' },
+        { code: 'M2N3P', name: 'Persecución en la sierra', host: 'Paty Pistón', players: 2, max: 8, track: 'Paso del Diablo', mode: 'Touge', status: 'En sala' },
+      ]), 500)),
+      onCreate: o => { ui.toast('Crear sala: ' + o.name + (o.isPublic ? ' (pública)' : ' (privada)')); T.room(true); },
+      onJoinCode: c => { ui.toast('Unirse a ' + c); T.room(false); },
+      onJoin: c => { ui.toast('Unirse a ' + c); T.room(false); },
+      onBack: T.main,
+    });
+    T.room = (isHost = true) => {
+      const t0 = deps.TRACKS[0];
+      const st = { code: 'K7P2Q', name: 'Los del Barrio', isPublic: true, isHost, myId: 'yo', phase: 'lobby',
+        settings: { trackId: t0.id, modeId: 'circuito', laps: 3, timeOfDay: 'day', weather: 'clear' },
+        players: [
+          { id: isHost ? 'yo' : 'h1', name: isHost ? save.data.playerName : 'Toño Turbo', car: 'Nissan Skyline GT-R R34', ready: false, isHost: true, isBot: false },
+          { id: isHost ? 'p2' : 'yo', name: isHost ? 'La Güera' : save.data.playerName, car: 'Toyota Supra MK4', ready: true, isHost: false, isBot: false, link: 'p2p' },
+          { id: 'p3', name: 'Memo Derrape', car: 'Mazda RX-7 FD', ready: false, isHost: false, isBot: false, link: 'respaldo' },
+          { id: 'b1', name: 'El Chato', car: 'Volkswagen Golf GTI', ready: true, isHost: false, isBot: true },
+        ],
+        chat: [{ name: 'La Güera', text: '¿Listos para la carrera?' }, { name: 'Memo Derrape', text: 'Yo voy con el RX-7, a ver quién me alcanza' }],
+        canStart: false,
+      };
+      const push = () => { st.canStart = st.isHost && st.players.filter(p => !p.isHost && !p.isBot).every(p => p.ready); ui.updateRoom(JSON.parse(JSON.stringify(st))); };
+      T.roomState = st; T.roomPush = push;
+      ui.showRoom({
+        onSettings: p => { Object.assign(st.settings, p); const m = MODE_BY_ID[st.settings.modeId]; st.players.forEach(x => x.role = m.roles ? (x.isBot ? 'policia' : 'fugitivo') : null); push(); },
+        onReady: r => { const me = st.players.find(p => p.id === 'yo'); me.ready = r; push(); },
+        onStart: () => { ui.toast('¡Arrancando!'); T.race('circuito'); },
+        onLeave: T.lobby,
+        onAddBot: () => { if (st.players.length < MAX_PLAYERS) st.players.push({ id: 'b' + Date.now(), name: ['Neto Nitro', 'Doña Lupe', 'El Pirata', 'Lalo Llanta'][st.players.length % 4], car: 'Ford Mustang GT', ready: true, isBot: true }); push(); },
+        onRemoveBot: id => { st.players = st.players.filter(p => p.id !== id); push(); },
+        onChat: t => { st.chat.push({ name: save.data.playerName, text: t }); push(); },
+        onPickCar: () => { const c = save.currentCar(); const def = deps.CAR_BY_ID[c.carId]; st.players.find(p => p.id === 'yo').car = def ? def.brand + ' ' + def.model : c.carId; push(); },
+      });
+      push();
+    };
+    T.practice = () => ui.showPractice({ onBack: T.main, onStart: s => { console.log('[prueba] práctica', s); ui.toast('Arrancar: ' + JSON.stringify(s)); T.race(s.modeId, s.trackId); } });
+    T.loading = () => { ui.hideAll(); let p = 0; ui.showLoading('Cargando Autódromo Monterrey…', 0); const id = setInterval(() => { p += 0.08; ui.showLoading(p < .5 ? 'Construyendo pista…' : 'Calentando motores…', p); if (p >= 1) { clearInterval(id); setTimeout(() => ui.hideAll(), 400); } }, 400); };
+    T.pause = () => ui.showPause({ onResume: () => { ui.hideAll(); ui.hud.show(); }, onRestart: () => T.race(T.mode || 'circuito'), onSettings: () => ui.showSettings({ onBack: T.pause, onChange: () => {} }), onQuit: () => { T.stopRace(); T.main(); } });
+    T.results = () => { T.stopRace(); ui.hud.hide(); ui.showResults({
+      rows: [
+        { pos: 1, name: save.data.playerName, car: 'Nissan Skyline GT-R R34', time: 245678, best: 79123, score: 0, money: 13500, isLocal: true },
+        { pos: 2, name: 'La Güera', car: 'Toyota Supra MK4', time: 246901, best: 79540, score: 0, money: null },
+        { pos: 3, name: 'Memo Derrape', car: 'Mazda RX-7 FD', time: 249012, best: 80011, score: 0, money: null },
+        { pos: 4, name: 'El Chato', car: 'Volkswagen Golf GTI', time: 255000, best: 82000, score: 0, money: null },
+        { pos: 5, name: 'Doña Lupe', car: 'Ford Mustang GT', time: null, best: 83010, score: 0, dnf: true, money: null },
+      ], earned: 13500, mode: MODE_BY_ID.circuito, track: 'Autódromo Monterrey', newRecord: true,
+    }, { onContinue: T.main }); };
+
+    // ---------------- carrera simulada (HUD) ----------------
+    let raf = 0;
+    T.stopRace = () => { cancelAnimationFrame(raf); raf = 0; };
+    T.race = (modeId = 'circuito', trackId) => {
+      T.stopRace();
+      T.mode = modeId;
+      const mode = MODE_BY_ID[modeId];
+      const track = deps.TRACK_BY_ID[trackId] || deps.TRACKS[0];
+      const pts = deps.trackOutline(track) || MOCK_TRACKS[0]._pts;
+      ui.hideAll();
+      ui.hud.show();
+      ui.hud.minimap(pts);
+      const names = [save.data.playerName, 'La Güera', 'Memo Derrape', 'El Chato', 'Doña Lupe', 'Toño Turbo', 'Paty Pistón', 'Neto Nitro'];
+      const colors = ['#ff5a1f', '#3d8bff', '#ffd23f', '#3ddc84', '#b05cff', '#ff4d9d', '#00d0d0', '#ffffff'];
+      const cars = names.map((n, i) => ({ n, c: colors[i], p: 0.02 * (8 - i), v: 0.00055 + Math.random() * 0.0001 }));
+      const red = 7500, laps = mode.laps.max ? Math.max(1, mode.laps.def) : 0;
+      let t0 = performance.now(), gear = 1, rpm = 1500, score = 0, combo = 0, mult = 1, nitro = 1, dmg = 0, fuel = 1, tires = 1;
+      [3, 2, 1].forEach((n, i) => setTimeout(() => ui.hud.countdown(n), 300 + i * 1000));
+      setTimeout(() => ui.hud.countdown('¡YA!'), 3300);
+      const step = now => {
+        raf = requestAnimationFrame(step);
+        const t = (now - t0) / 1000 - 3.3;
+        if (t > 0) {
+          rpm += 2600 * 0.016 * (gear < 3 ? 1.6 : 0.9);
+          if (rpm > red * 0.98) { gear = Math.min(6, gear + 1); rpm = red * 0.62; if (gear === 6) rpm = red * 0.93; }
+          cars.forEach(c => { c.p += c.v * (0.9 + Math.sin(now / 900 + c.v * 9000) * 0.1); });
+          if (modeId === 'drift' || modeId === 'gymkhana') { combo += 7; if (combo > 900) { score += combo * mult; ui.hud.message(`+${combo} DRIFT ×${mult}`, 'drift'); combo = 0; mult = mult % 5 + 1; } }
+          nitro = (Math.sin(now / 3000) + 1) / 2; dmg = Math.min(1, t / 120); fuel = Math.max(0, 1 - t / 90); tires = Math.max(0, 1 - t / 70);
+        }
+        const sorted = [...cars].sort((a, b) => b.p - a.p);
+        const me = cars[0], pos = sorted.indexOf(me) + 1;
+        const at = p => { const f = ((p % 1) + 1) % 1 * pts.length; const i = Math.floor(f) % pts.length; return pts[i]; };
+        const lap = Math.min(laps || 1, Math.floor(me.p) + 1);
+        ui.hud.update({
+          speedKmh: Math.max(0, t) > 0 ? rpm / red * gear * 42 : 0, rpm: t > 0 ? rpm : 900 + Math.random() * 60, redline: red, gear: t > 0 ? gear : 1, gearbox: save.data.settings.gearbox,
+          lap, laps, position: pos, total: cars.length, raceMs: Math.max(0, t * 1000), lapMs: Math.max(0, t * 1000) % 80000, bestLapMs: t > 80 ? 79123 : null, lastLapMs: t > 80 ? 80456 : null,
+          nitro: mode.nitro ? nitro : null, nitroActive: nitro > 0.8, damage: dmg, score, combo, comboMult: mult, mode: modeId,
+          modeInfo: mode.roles ? 'PATRULLA · atrapa fugitivos · Tiempo ' + Math.floor((180 - Math.max(0, t)) / 60) + ':' + String(Math.floor(180 - Math.max(0, t)) % 60).padStart(2, '0') : mode.timeLimitS ? 'Tiempo ' + Math.floor((mode.timeLimitS - Math.max(0, t)) / 60) + ':' + String(Math.floor(mode.timeLimitS - Math.max(0, t)) % 60).padStart(2, '0') : mode.eliminate ? 'Quedan 6' : '',
+          fuel: mode.wear ? fuel : null, tires: mode.wear ? tires : null, fps: save.data.settings.showFps ? 60 : null,
+          cars: cars.map((c, i) => { const p = at(c.p); return { x: p[0], z: p[1], color: c.c, isLocal: i === 0 }; }),
+        });
+        if (!(Math.floor(now / 250) % 2) || !T._st) {
+          T._st = true;
+          const lead = sorted[0];
+          ui.hud.standings(sorted.map((c, i) => ({ pos: i + 1, name: c.n, isLocal: c === me, color: c.c, gap: i === 0 ? 'líder' : '+' + Math.round((lead.p - c.p) * 3000) + ' m', out: false, role: mode.roles ? (c === me ? 'fugitivo' : 'policia') : null })));
+        }
+      };
+      raf = requestAnimationFrame(step);
+      if (laps > 1) setTimeout(() => ui.hud.message('¡ÚLTIMA VUELTA!', 'big'), 6000);
+      setTimeout(() => ui.hud.message('MEJOR VUELTA', 'good'), 8000);
+      setTimeout(() => ui.hud.message('−100 ALCANCE', 'bad'), 9500);
+    };
+
+    // ---------------- barra de pruebas ----------------
+    const dev = document.getElementById('dev');
+    const btn = (t, f) => { const b = document.createElement('button'); b.textContent = t; b.onclick = () => { b.blur(); f(); }; dev.append(b); };
+    const st = document.createElement('span'); st.className = 'st';
+    st.textContent = Object.entries(real).map(([k, v]) => k + (v ? '✓' : '·')).join(' ');
+    dev.append(st);
+    btn('Inicio', T.main); btn('Concesionaria', T.dealer); btn('Garaje', T.garage); btn('Ajustes', T.settings); btn('Código', T.code); btn('Récords', T.records);
+    btn('Vestíbulo', T.lobby); btn('Sala anfitrión', () => T.room(true)); btn('Sala invitado', () => T.room(false)); btn('Práctica', T.practice);
+    btn('Carga', T.loading); btn('HUD circuito', () => T.race('circuito')); btn('HUD drift', () => T.race('drift')); btn('HUD resistencia', () => T.race('resistencia'));
+    btn('HUD persecución', () => T.race('persecucion')); btn('HUD gymkhana', () => T.race('gymkhana', 'plataforma-gymkhana')); btn('Pausa', T.pause); btn('Resultados', T.results); btn('Aviso', () => ui.toast('Esto es un aviso de prueba'));
+    btn('Ocultar barra (F2)', () => dev.classList.add('hide'));
+    addEventListener('keydown', e => { if (e.key === 'F2') dev.classList.toggle('hide'); });
+    const q = new URLSearchParams(location.search);
+    if (q.get('bar') === '0') dev.classList.add('hide');
+    const start = q.get('screen');
+    if (start && T[start]) T[start](); else T.main();
+  </script>
+</body>
+</html>

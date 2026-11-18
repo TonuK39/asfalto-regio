@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prueba de audio — Asfalto Regio</title>
+<style>
+  :root { --bg:#0d0f14; --panel:#161a22; --line:#262c38; --txt:#e6e9ef; --dim:#8b93a3; --acc:#ffb020; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:14px/1.4 system-ui, Segoe UI, sans-serif; }
+  header { padding:12px 16px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  h1 { font-size:18px; margin:0; } h2 { font-size:14px; margin:0 0 8px; color:var(--acc); text-transform:uppercase; letter-spacing:.06em; }
+  main { display:grid; grid-template-columns:repeat(auto-fit, minmax(330px, 1fr)); gap:12px; padding:12px; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; }
+  button { background:#232a36; color:var(--txt); border:1px solid #334; border-radius:6px; padding:6px 10px; margin:2px; cursor:pointer; font:inherit; }
+  button:hover { background:#2d3646; } button.on { background:var(--acc); color:#111; }
+  label { display:flex; align-items:center; gap:8px; margin:4px 0; } label span { min-width:110px; color:var(--dim); }
+  input[type=range] { flex:1; } select, input[type=text], input[type=number] { background:#0f1218; color:var(--txt); border:1px solid #334; border-radius:4px; padding:4px; }
+  pre { margin:0; font:12px/1.5 Consolas, monospace; white-space:pre-wrap; color:#cfe3ff; }
+  canvas { width:100%; height:110px; background:#07090c; border-radius:6px; display:block; margin-top:8px; }
+  .row { display:flex; flex-wrap:wrap; gap:4px; align-items:center; }
+  .big { font-size:16px; padding:8px 16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Prueba de audio</h1>
+  <button id="unlock" class="big">Activar audio</button>
+  <span id="state" style="color:var(--dim)">contexto: —</span>
+</header>
+<main>
+  <section>
+    <h2>Volúmenes</h2>
+    <div id="vols"></div>
+    <h2 style="margin-top:12px">Costo</h2>
+    <pre id="stats">—</pre>
+    <div class="row" style="margin-top:6px">
+      <button id="bench">Medir costo (offline: 8 motores + música)</button>
+      <select id="benchStyle"></select>
+    </div>
+    <pre id="benchOut"></pre>
+    <canvas id="scope" width="600" height="110"></canvas>
+  </section>
+
+  <section>
+    <h2>Motor local</h2>
+    <label><span>Arquitectura</span><select id="layout"></select></label>
+    <label><span>Turbo</span><input type="checkbox" id="turbo"></label>
+    <label><span>RPM</span><input type="range" id="rpm" min="0" max="1" step="0.001" value="0"><b id="rpmV">—</b></label>
+    <label><span>Acelerador</span><input type="range" id="thr" min="0" max="1" step="0.01" value="0"><b id="thrV">0</b></label>
+    <label><span>Velocidad</span><input type="range" id="spd" min="0" max="90" step="0.5" value="0"><b id="spdV">0 km/h</b></label>
+    <label><span>Marcha</span><b id="gearV">1</b></label>
+    <label><span>Superficie</span><select id="surf"><option>asfalto</option><option>piano</option><option>pasto</option><option>tierra</option><option>grava</option><option>arena</option><option>nieve</option><option>hielo</option></select></label>
+    <label><span>Nitro</span><input type="checkbox" id="nitro"></label>
+    <label><span>Derrape</span><input type="range" id="skid" min="0" max="1" step="0.01" value="0"><b id="skidV">0</b></label>
+    <div class="row">
+      <button id="engOn">Encender</button><button id="engOff">Apagar</button>
+      <button id="sim">Simular aceleración</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Motores remotos</h2>
+    <label><span>Arquitectura</span><select id="rlayout"></select></label>
+    <div class="row">
+      <button id="remOn">Remoto girando alrededor</button>
+      <button id="rem7">7 remotos (prueba de 8 autos)</button>
+      <button id="remOff">Quitar remotos</button>
+    </div>
+    <pre id="remInfo"></pre>
+    <h2 style="margin-top:12px">Ambiente</h2>
+    <div class="row" id="amb"></div>
+  </section>
+
+  <section>
+    <h2>Efectos</h2>
+    <label><span>Posicional</span><input type="checkbox" id="sfxPos"> <small style="color:var(--dim)">(a la derecha, 15 m)</small></label>
+    <div class="row" id="sfx"></div>
+    <div class="row"><button id="sirenLoop">Sirena en bucle (posicional)</button></div>
+  </section>
+
+  <section>
+    <h2>Música</h2>
+    <div class="row" id="mus"></div>
+    <div class="row"><button id="musStop">Detener</button></div>
+    <pre id="musInfo"></pre>
+  </section>
+
+  <section>
+    <h2>Narrador</h2>
+    <label><span>Activado</span><input type="checkbox" id="narOn" checked></label>
+    <label><span>name</span><input type="text" id="narName" value="Chuy"></label>
+    <label><span>position</span><input type="number" id="narPos" value="2" min="1" max="8"></label>
+    <label><span>value</span><input type="text" id="narVal" value="83456"></label>
+    <pre id="voice">voz: —</pre>
+    <div class="row" id="nar"></div>
+  </section>
+</main>
+
+<script type="module">
+import { audio, stats } from '../js/core/audio.js';
+import { music } from '../js/core/music.js';
+import { narrator } from '../js/core/narrator.js';
+
+const $ = id => document.getElementById(id);
+const PRESET = { I3: [900, 6500], I4: [850, 7500], I5: [800, 7000], I6: [750, 7200], V6: [750, 7000], V8: [700, 6800], V10: [900, 8800], V12: [800, 8500], F4: [800, 7200], F6: [900, 9000], W16: [700, 6700], R2: [1000, 9000], EV: [0, 12000] };
+const CYL = { I3: 3, I4: 4, I5: 5, I6: 6, V6: 6, V8: 8, V10: 10, V12: 12, F4: 4, F6: 6, W16: 16, R2: 2, EV: 0 };
+for (const sel of [$('layout'), $('rlayout')]) for (const [k, n] of Object.entries(audio.ENGINE_LAYOUTS)) sel.add(new Option(`${k} — ${n}`, k));
+$('layout').value = 'I6'; $('turbo').checked = true; $('rlayout').value = 'V8';
+
+// identidad: oyente en el origen mirando a −Z
+const cam = { matrixWorld: { elements: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] } };
+
+$('unlock').onclick = async () => { await audio.unlock(); refresh(); };
+function refresh() { const c = audio.ctx; $('state').textContent = c ? `contexto: ${c.state} · ${c.sampleRate} Hz · latencia ${(c.baseLatency * 1000 || 0).toFixed(1)} ms` : 'sin WebAudio'; }
+
+// ---- volúmenes ----
+const vols = audio.getVolumes();
+for (const k of ['master', 'music', 'sfx', 'engine', 'voice']) {
+  const l = document.createElement('label');
+  l.innerHTML = `<span>${k}</span><input type="range" min="0" max="1" step="0.01" value="${vols[k]}"><b>${vols[k]}</b>`;
+  const r = l.querySelector('input'), b = l.querySelector('b');
+  r.oninput = () => { audio.setVolumes({ [k]: +r.value }); b.textContent = r.value; };
+  $('vols').append(l);
+}
+
+// ---- efectos ----
+for (const n of ['click', 'hover', 'compra', 'error', 'cuenta', 'arranque', 'vuelta', 'meta', 'muro', 'alcance', 'nitro', 'cambio', 'claxon', 'eliminado', 'punto', 'cono', 'sirena']) {
+  const b = document.createElement('button'); b.textContent = n;
+  b.onclick = () => audio.sfx(n, $('sfxPos').checked ? { position: { x: 15, y: 0, z: 0 } } : {});
+  if (n === 'hover') b.onmouseenter = () => audio.sfx('hover');
+  $('sfx').append(b);
+}
+let siren = null;
+$('sirenLoop').onclick = () => {
+  if (siren) { siren.stop(); siren = null; $('sirenLoop').classList.remove('on'); return; }
+  siren = audio.loop('sirena', { position: { x: -20, y: 0, z: -10 } }); $('sirenLoop').classList.add('on');
+};
+for (const k of ['lluvia', 'viento', 'ciudad', 'gradas', 'mar', null]) {
+  const b = document.createElement('button'); b.textContent = k || 'ninguno';
+  b.onclick = () => { audio.ambience(k); [...$('amb').children].forEach(x => x.classList.toggle('on', x === b && !!k)); };
+  $('amb').append(b);
+}
+
+// ---- motor local ----
+let eng = null, sim = null;
+const st = { rpm: 800, idleRpm: 800, redlineRpm: 7000, throttle: 0, speed: 0, gear: 1, nitroActive: false, slipAngle: 0, drifting: false, surface: 'asfalto', onGround: true };
+function setPreset() { const [i, r] = PRESET[$('layout').value]; st.idleRpm = i || 800; st.redlineRpm = r; }
+function makeEngine() {
+  if (eng) eng.stop();
+  setPreset();
+  const lay = $('layout').value;
+  eng = audio.createEngine({ layout: lay, cylinders: CYL[lay], turbo: $('turbo').checked }, { local: true });
+}
+$('engOn').onclick = async () => { await audio.unlock(); makeEngine(); };
+$('engOff').onclick = () => { if (eng) eng.stop(); eng = null; sim = null; };
+$('layout').onchange = $('turbo').onchange = () => { if (eng) makeEngine(); };
+const rpmFromSlider = () => st.idleRpm + (+$('rpm').value) * (st.redlineRpm - st.idleRpm);
+$('rpm').oninput = () => { st.rpm = rpmFromSlider(); };
+$('thr').oninput = () => { st.throttle = +$('thr').value; };
+$('spd').oninput = () => { st.speed = +$('spd').value; };
+$('surf').onchange = () => { st.surface = $('surf').value; };
+$('nitro').onchange = () => { st.nitroActive = $('nitro').checked; };
+
+// simulación: acelera a fondo, sube de marcha en marcha, pega en el corte, suelta (petardeos / alivio del turbo)
+const RATIOS = [3.3, 2.2, 1.6, 1.25, 1.0, 0.82];
+$('sim').onclick = async () => {
+  await audio.unlock(); if (!eng) makeEngine();
+  sim = { t: 0, phase: 'acelera', shiftT: 0, limT: 0, liftT: 0 };
+  st.gear = 1; st.speed = 0; st.rpm = st.idleRpm;
+};
+function stepSim(dt) {
+  const s = sim; s.t += dt;
+  const ratio = RATIOS[st.gear - 1], toRpm = v => v * ratio * 3.7 * 60 / (2 * Math.PI * 0.33);
+  if (s.phase === 'acelera') {
+    if (s.shiftT > 0) { s.shiftT -= dt; st.throttle = 0; st.rpm += (toRpm(st.speed) - st.rpm) * Math.min(1, dt * 25); return; }
+    st.throttle = 1;
+    const acc = 9.5 * ratio / 3.3 * (st.rpm >= st.redlineRpm * 0.99 ? 0 : 1);
+    st.speed = Math.min(st.speed + acc * dt, 95);
+    const clutch = Math.max(toRpm(st.speed), st.gear === 1 ? Math.min(3400, st.redlineRpm * 0.5) : st.idleRpm); // embrague patinando al arrancar
+    st.rpm = Math.min(st.redlineRpm, clutch);
+    if (st.rpm >= st.redlineRpm * 0.97) {
+      if (st.gear < 6) { st.gear++; s.shiftT = 0.14; }
+      else { s.limT += dt; if (s.limT > 1.4) { s.phase = 'suelta'; } }
+    }
+  } else if (s.phase === 'suelta') {
+    st.throttle = 0; s.liftT += dt;
+    st.speed = Math.max(0, st.speed - 2.5 * dt);
+    st.rpm = Math.max(st.idleRpm, toRpm(st.speed));
+    if (s.liftT > 3) { sim = null; st.throttle = 0; }
+  }
+}
+
+// ---- remotos ----
+let remotes = [];
+function addRemote(layout, radius, speed, phase) {
+  const v = audio.createEngine({ layout, cylinders: CYL[layout], turbo: true }, { local: false });
+  const [i, r] = PRESET[layout];
+  remotes.push({ v, radius, speed, phase, st: { rpm: 3000, idleRpm: i || 800, redlineRpm: r, throttle: 1, speed, gear: 3 }, layout });
+}
+$('remOn').onclick = async () => { await audio.unlock(); addRemote($('rlayout').value, 25, 35, 0); };
+$('rem7').onclick = async () => {
+  await audio.unlock();
+  const lays = ['V8', 'I4', 'V12', 'F6', 'R2', 'I6', 'EV'];
+  lays.forEach((l, k) => addRemote(l, 20 + k * 9, 25 + k * 3, k));
+  if (!eng) makeEngine();
+};
+$('remOff').onclick = () => { for (const r of remotes) r.v.stop(); remotes = []; };
+
+// ---- música ----
+for (const s of music.styles) {
+  const b = document.createElement('button'); b.textContent = s.id; b.title = `${s.name} · ${s.bpm} bpm`;
+  b.onclick = async () => { await audio.unlock(); music.play(s.id); };
+  $('mus').append(b);
+  $('benchStyle').add(new Option(s.id, s.id));
+}
+$('benchStyle').value = 'puerto';
+$('musStop').onclick = () => music.stop();
+
+// ---- narrador ----
+$('narOn').onchange = () => { narrator.enabled = $('narOn').checked; };
+for (const ev of narrator.events) {
+  const b = document.createElement('button'); b.textContent = ev;
+  b.onclick = async () => {
+    await audio.unlock();
+    const raw = $('narVal').value, num = Number(raw);
+    const ok = narrator.say(ev, { name: $('narName').value, position: +$('narPos').value, value: raw === '' ? undefined : (isFinite(num) ? num : raw) });
+    b.style.outline = ok ? '2px solid #3c6' : '2px solid #a33'; setTimeout(() => (b.style.outline = ''), 500);
+  };
+  $('nar').append(b);
+}
+
+// ---- medición offline ----
+$('bench').onclick = async () => {
+  $('benchOut').textContent = 'midiendo…';
+  const voices = [];
+  let t = 0;
+  const lays = ['I6', 'V8', 'I4', 'V12', 'F6', 'R2', 'W16', 'EV'];
+  const res = await music.renderOffline($('benchStyle').value, 10, 48000, (off, tt) => {
+    if (!voices.length) lays.forEach((l, k) => voices.push(audio.createEngine({ layout: l, turbo: k === 0 }, { local: k === 0, ctx: off, destination: off.destination })));
+    voices.forEach((v, k) => {
+      const ph = tt * 0.6 + k;
+      if (k) v.setPosition({ x: Math.cos(ph) * (15 + k * 8), y: 0, z: Math.sin(ph) * (15 + k * 8) });
+      v.update({ rpm: 2500 + 3500 * (0.5 + 0.5 * Math.sin(tt * 1.3 + k)), idleRpm: 800, redlineRpm: 7000, throttle: (tt + k) % 3 < 2 ? 1 : 0, speed: 30 + k, gear: 1 + Math.floor(tt) % 5, surface: 'asfalto' });
+    });
+  });
+  const counts = voices.map(v => v.nodeCount);
+  voices.forEach(v => v.stop());
+  $('benchOut').textContent = `10 s renderizados en ${res.ms.toFixed(0)} ms → carga ≈ ${(res.ratio * 100).toFixed(1)} % de un núcleo\n` +
+    `nodos por voz: local ${counts[0]}, remotos ${counts.slice(1).join(', ')}\nRMS ${res.rms.toFixed(3)} · pico ${res.peak.toFixed(3)}`;
+};
+
+// ---- osciloscopio y estadísticas ----
+let an = null, buf = null;
+const cv = $('scope'), g = cv.getContext('2d');
+function draw() {
+  if (!an && audio.ctx && audio.ctx.state === 'running') { an = audio.ctx.createAnalyser(); an.fftSize = 2048; audio.bus('master').connect(an); buf = new Float32Array(an.fftSize); }
+  g.fillStyle = '#07090c'; g.fillRect(0, 0, cv.width, cv.height);
+  if (an) {
+    an.getFloatTimeDomainData(buf);
+    g.strokeStyle = '#ffb020'; g.beginPath();
+    for (let i = 0; i < buf.length; i += 2) { const x = i / buf.length * cv.width, y = cv.height / 2 - buf[i] * cv.height / 2; i ? g.lineTo(x, y) : g.moveTo(x, y); }
+    g.stroke();
+  }
+}
+let last = performance.now(), statT = 0, frameMs = 0;
+function loop(now) {
+  const dt = Math.min(0.25, (now - last) / 1000); last = now;
+  const t0 = performance.now();
+  if (sim) stepSim(dt);
+  if (eng) {
+    if (sim) { $('rpm').value = (st.rpm - st.idleRpm) / (st.redlineRpm - st.idleRpm); $('thr').value = st.throttle; $('spd').value = st.speed; }
+    eng.update(st);
+  }
+  audio.updateListener(cam);
+  const sk = +$('skid').value; audio.skid(sk, st.surface);
+  const tt = now / 1000;
+  for (const r of remotes) {
+    const a = r.phase + tt * r.speed / r.radius;
+    r.v.setPosition({ x: Math.cos(a) * r.radius, y: 0, z: Math.sin(a) * r.radius });
+    r.st.rpm = r.layout === 'EV' ? 0 : r.st.idleRpm + (r.st.redlineRpm - r.st.idleRpm) * (0.45 + 0.4 * Math.sin(tt * 0.9 + r.phase));
+    r.v.update(r.st);
+  }
+  frameMs += (performance.now() - t0 - frameMs) * 0.05;
+  $('rpmV').textContent = Math.round(st.rpm); $('thrV').textContent = (+st.throttle).toFixed(2);
+  $('spdV').textContent = Math.round(st.speed * 3.6) + ' km/h'; $('gearV').textContent = st.gear; $('skidV').textContent = sk.toFixed(2);
+  if (now - statT > 250) {
+    statT = now; refresh();
+    const c = audio.ctx;
+    let cap = '';
+    if (c && c.renderCapacity && !loop.rc) { try { c.renderCapacity.start({ updateInterval: 1 }); c.renderCapacity.addEventListener('update', e => { loop.load = e; }); loop.rc = true; } catch { loop.rc = true; } }
+    if (loop.load) cap = `\ncarga del hilo de audio: media ${(loop.load.averageLoad * 100).toFixed(1)} % · pico ${(loop.load.peakLoad * 100).toFixed(1)} %`;
+    $('stats').textContent = `nodos vivos: ${stats.live}  (creados ${stats.created}, liberados ${stats.freed})\n` +
+      `motor local: ${eng ? eng.nodeCount + ' nodos' : '—'} · remotos: ${remotes.length} × ${remotes[0] ? remotes[0].v.nodeCount : 0} nodos\n` +
+      `JS por cuadro (update de motores): ${frameMs.toFixed(3)} ms` + cap;
+    $('remInfo').textContent = remotes.length ? remotes.map(r => `${r.layout} r=${r.radius} m`).join(' · ') : 'sin remotos';
+    $('musInfo').textContent = 'sonando: ' + (music.current || '—');
+    $('voice').textContent = 'voz: ' + narrator.voiceName;
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+window.__audio = { audio, music, narrator, stats };
+</script>
+</body>
+</html>

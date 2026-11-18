@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Asfalto Regio</title>
+  <meta name="description" content="Carreras 3D en línea con tus amigos: drift, fórmula, callejero, arrancones, touge y más, en el Autódromo Monterrey y pistas temáticas. Gratis, sin registro.">
+  <meta name="theme-color" content="#0d0f14">
+  <meta property="og:title" content="Asfalto Regio">
+  <meta property="og:description" content="Carreras 3D en línea con tus amigos. Sin registro.">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/ui.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+      "@supabase/supabase-js": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/+esm"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="game" aria-hidden="true"></div>
+  <div id="ui"></div>
+  <div id="boot" class="boot">
+    <div class="boot-logo"><span>ASFALTO</span><b>REGIO</b></div>
+    <div class="boot-msg">Cargando…</div>
+  </div>
+  <noscript>Este juego necesita JavaScript.</noscript>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
